@@ -1,0 +1,116 @@
+{
+  "baseline": {
+    "light": {
+      "throughput": 500,
+      "latency_p50": 20,
+      "latency_p95": 50,
+      "latency_p99": 100,
+      "cpu_usage": 30,
+      "memory_usage": 40,
+      "disk_io": 10,
+      "network_io": 5
+    },
+    "medium": {
+      "throughput": 1000,
+      "latency_p50": 50,
+      "latency_p95": 100,
+      "latency_p99": 200,
+      "cpu_usage": 60,
+      "memory_usage": 70,
+      "disk_io": 20,
+      "network_io": 10
+    },
+    "heavy": {
+      "throughput": 2000,
+      "latency_p50": 100,
+      "latency_p95": 200,
+      "latency_p99": 500,
+      "cpu_usage": 80,
+      "memory_usage": 85,
+      "disk_io": 40,
+      "network_io": 20
+    }
+  },
+  "combinations": {
+    "人大金仓_阿里RabbitMQ_麒麟Kylin": {
+      "compatibility_score": 0.92,
+      "performance": {
+        "throughput": 1726,
+        "latency_p95": 51,
+        "cpu_usage": 70,
+        "memory_usage": 65
+      },
+      "resource_requirements": {
+        "cpu_cores": 4,
+        "memory_gb": 8,
+        "disk_gb": 100
+      }
+    },
+    "达梦_东方通TongLink_统信UOS": {
+      "compatibility_score": 0.88,
+      "performance": {
+        "throughput": 1800,
+        "latency_p95": 45,
+        "cpu_usage": 65,
+        "memory_usage": 60
+      },
+      "resource_requirements": {
+        "cpu_cores": 4,
+        "memory_gb": 8,
+        "disk_gb": 100
+      }
+    },
+    "南大通用_宝兰德BES_麒麟Kylin": {
+      "compatibility_score": 0.85,
+      "performance": {
+        "throughput": 1500,
+        "latency_p95": 60,
+        "cpu_usage": 75,
+        "memory_usage": 70
+      },
+      "resource_requirements": {
+        "cpu_cores": 6,
+        "memory_gb": 12,
+        "disk_gb": 150
+      }
+    }
+  },
+  "task_profiles": {
+    "OLTP": {
+      "description": "联机交易处理",
+      "characteristics": {
+        "high_concurrency": true,
+        "low_latency": true,
+        "transactional": true
+      },
+      "recommended_combinations": [
+        "人大金仓_阿里RabbitMQ_麒麟Kylin",
+        "达梦_东方通TongLink_统信UOS"
+      ]
+    },
+    "OLAP": {
+      "description": "联机分析处理",
+      "characteristics": {
+        "high_throughput": true,
+        "complex_queries": true,
+        "batch_processing": true
+      },
+      "recommended_combinations": [
+        "海量_普元Primeton_麒麟Kylin",
+        "南大通用_金蝶ADMQ_统信UOS"
+      ]
+    },
+    "mixed": {
+      "description": "混合工作负载",
+      "characteristics": {
+        "balanced": true,
+        "flexible": true,
+        "scalable": true
+      },
+      "recommended_combinations": [
+        "达梦_阿里RabbitMQ_麒麟Kylin",
+        "人大金仓_宝兰德BES_统信UOS"
+      ]
+    }
+  }
+}

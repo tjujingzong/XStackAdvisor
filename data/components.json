@@ -1,0 +1,152 @@
+{
+  "databases": [
+    {
+      "id": 1,
+      "name": "达梦数据库",
+      "version": "DM8",
+      "vendor": "达梦",
+      "protocol": "JDBC/ODBC",
+      "compatibility_tags": ["MySQL", "Oracle", "PostgreSQL"],
+      "performance_baseline": {
+        "tps": 2000,
+        "latency_p95": 45,
+        "cpu_usage": 65,
+        "memory_usage": 60
+      }
+    },
+    {
+      "id": 2,
+      "name": "人大金仓 KingbaseES",
+      "version": "V009R001C010",
+      "vendor": "人大金仓",
+      "protocol": "JDBC/ODBC",
+      "compatibility_tags": ["MySQL", "Oracle", "PostgreSQL"],
+      "performance_baseline": {
+        "tps": 1726,
+        "latency_p95": 51,
+        "cpu_usage": 70,
+        "memory_usage": 65
+      }
+    },
+    {
+      "id": 3,
+      "name": "南大通用 GBase",
+      "version": "8a V8.6",
+      "vendor": "南大通用",
+      "protocol": "JDBC/ODBC",
+      "compatibility_tags": ["MySQL", "Oracle"],
+      "performance_baseline": {
+        "tps": 1500,
+        "latency_p95": 60,
+        "cpu_usage": 75,
+        "memory_usage": 70
+      }
+    },
+    {
+      "id": 4,
+      "name": "海量数据库",
+      "version": "Vastbase G100",
+      "vendor": "海量数据",
+      "protocol": "JDBC/ODBC",
+      "compatibility_tags": ["PostgreSQL"],
+      "performance_baseline": {
+        "tps": 1800,
+        "latency_p95": 55,
+        "cpu_usage": 68,
+        "memory_usage": 62
+      }
+    }
+  ],
+  "message_queues": [
+    {
+      "id": 1,
+      "name": "阿里 RabbitMQ",
+      "version": "3.8.3",
+      "vendor": "阿里云",
+      "protocol": "AMQP 0-9-1",
+      "compatibility_tags": ["STOMP", "MQTT"],
+      "performance_baseline": {
+        "throughput": 9250,
+        "latency_p95": 2000,
+        "cpu_usage": 50,
+        "memory_usage": 55
+      }
+    },
+    {
+      "id": 2,
+      "name": "东方通 TongLink/Q",
+      "version": "V7.0",
+      "vendor": "东方通",
+      "protocol": "TongLink",
+      "compatibility_tags": ["JMS", "AMQP"],
+      "performance_baseline": {
+        "throughput": 8000,
+        "latency_p95": 1500,
+        "cpu_usage": 55,
+        "memory_usage": 60
+      }
+    },
+    {
+      "id": 3,
+      "name": "宝兰德 BES MQ",
+      "version": "V2.0",
+      "vendor": "宝兰德",
+      "protocol": "JMS",
+      "compatibility_tags": ["AMQP", "STOMP"],
+      "performance_baseline": {
+        "throughput": 7500,
+        "latency_p95": 1800,
+        "cpu_usage": 60,
+        "memory_usage": 65
+      }
+    },
+    {
+      "id": 4,
+      "name": "普元 Primeton MQ",
+      "version": "V3.0",
+      "vendor": "普元",
+      "protocol": "JMS",
+      "compatibility_tags": ["AMQP"],
+      "performance_baseline": {
+        "throughput": 7000,
+        "latency_p95": 2000,
+        "cpu_usage": 65,
+        "memory_usage": 70
+      }
+    },
+    {
+      "id": 5,
+      "name": "金蝶 ADMQ",
+      "version": "V2.5",
+      "vendor": "金蝶",
+      "protocol": "ADMQ",
+      "compatibility_tags": ["JMS", "AMQP"],
+      "performance_baseline": {
+        "throughput": 6800,
+        "latency_p95": 2200,
+        "cpu_usage": 70,
+        "memory_usage": 75
+      }
+    }
+  ],
+  "operating_systems": [
+    {
+      "id": 1,
+      "name": "统信 UOS",
+      "version": "V20",
+      "vendor": "统信软件",
+      "architecture": "x86_64",
+      "kernel_version": "4.19.0",
+      "compatibility_tags": ["Linux", "Debian"]
+    },
+    {
+      "id": 2,
+      "name": "麒麟 Kylin",
+      "version": "V10 SP1",
+      "vendor": "麒麟软件",
+      "architecture": "x86_64",
+      "kernel_version": "4.19.0",
+      "compatibility_tags": ["Linux", "Ubuntu"]
+    }
+  ]
+}

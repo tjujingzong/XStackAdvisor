@@ -1,0 +1,9 @@
+@echo off
+echo 启动信创组件适配评估系统...
+echo.
+echo 安装依赖包...
+pip install -r requirements.txt
+echo.
+echo 启动API服务器...
+python app.py
+pause
