@@ -2,7 +2,7 @@
 
 ## 概述
 
-本系统提供基于组件和基于任务的信创组件适配评估API接口，支持数据库、消息队列、操作系统的兼容性分析和性能评估。
+本系统提供基于组件和基于任务的信创组件适配评估 API 接口，支持数据库、消息队列、操作系统的兼容性分析和性能评估。
 
 ## 基础信息
 
@@ -123,7 +123,7 @@ Content-Type: application/json
   "constraints": {
     "max_response_time": 1000,
     "min_throughput": 1000,
-    "resource_constraints": {...}
+    "resource_constraints": {}
   },
   "recommendations": [
     {
@@ -157,10 +157,11 @@ Content-Type: application/json
 {
   "database": "人大金仓 KingbaseES",
   "message_queue": "阿里 RabbitMQ",
-  "operating_system": "麒麟 Kylin V10",
-  "workload": "medium"
+  "operating_system": "麒麟 Kylin V10"
 }
 ```
+
+**说明**: 性能数据从 `datas/` 目录下的 CSV 文件中提取真实测试数据。
 
 **响应示例**:
 ```json
@@ -170,13 +171,116 @@ Content-Type: application/json
     "message_queue": "阿里 RabbitMQ",
     "operating_system": "麒麟 Kylin V10"
   },
-  "workload": "medium",
   "performance_metrics": {
-    "throughput": 1000,
-    "latency_p50": 50,
-    "latency_p95": 100,
-    "cpu_usage": 60,
-    "memory_usage": 70
+    "database": {
+      "throughput_tps": 1572.35,
+      "latency_ms_avg": 56.97,
+      "cpu_usage_percent": 81.69,
+      "memory_usage_percent": 51.4,
+      "memory_used_gb": 1.509
+    },
+    "message_queue": {
+      "throughput_msg_per_sec": 33729.0,
+      "latency_p95_ms": 1290.0,
+      "cpu_usage_percent": 86.93,
+      "memory_usage_percent": 80.61,
+      "memory_used_gb": 2.776
+    }
+  }
+}
+```
+
+#### 获取真实环境数据库性能数据
+```http
+GET /api/performance/real-data/database
+GET /api/performance/real-data/database?component=KingbaseES
+GET /api/performance/real-data/database?component=KingbaseES&limit=100
+```
+
+**查询参数**:
+- `component`: 可选。组件名称过滤（如 `KingbaseES`）。
+- `limit`: 可选。返回记录数限制，默认 `100`。
+
+**响应示例**:
+```json
+{
+  "component": "KingbaseES",
+  "total_records": 2,
+  "data": [
+    {
+      "timestamp": "2025-12-20 19:26:50",
+      "clients": 10,
+      "tps_excluding": 1500.0,
+      "latency_ms_avg": 60.0
+    }
+  ]
+}
+```
+
+#### 获取真实环境消息队列性能数据
+```http
+GET /api/performance/real-data/message-queue
+GET /api/performance/real-data/message-queue?component=RabbitMQ
+GET /api/performance/real-data/message-queue?component=RabbitMQ&limit=100
+```
+
+**查询参数**:
+- `component`: 可选。组件名称过滤（如 `RabbitMQ`）。
+- `limit`: 可选。返回记录数限制，默认 `100`。
+
+**响应示例**:
+```json
+{
+  "component": "RabbitMQ",
+  "total_records": 2,
+  "data": [
+    {
+      "run_id": "1",
+      "avg_received_msg_s": 30000.0,
+      "worst_p95_ms": 1200.0,
+      "success": true
+    }
+  ]
+}
+```
+
+#### 容量外推
+```http
+POST /api/capacity/extrapolation
+Content-Type: application/json
+```
+
+**请求参数**:
+```json
+{
+  "component_name": "KingbaseES",
+  "component_type": "DB",
+  "target_tps": 10000,
+  "max_latency_ms": 50,
+  "test_cpu_cores": 4,
+  "test_memory_gb": 4.0
+}
+```
+
+**说明**:
+- `component_type` 仅支持 `DB`（数据库）或 `MQ`（消息队列）。
+- 当 `component_type=DB` 时必须提供 `target_tps`；当 `component_type=MQ` 时必须提供 `target_msg_per_sec`。
+
+**响应示例**:
+```json
+{
+  "component_name": "KingbaseES",
+  "component_type": "DB",
+  "recommendations": {
+    "required_cpu_cores": 8,
+    "required_memory_gb": 16,
+    "estimated_latency_ms": 40.0,
+    "baseline_metrics": {
+      "tps_per_core": 1200.0,
+      "msg_per_sec_per_core": null,
+      "cpu_utilization_pct": 80.0,
+      "memory_utilization_pct": 60.0
+    }
   }
 }
 ```
@@ -200,7 +304,7 @@ GET /api/metrics/adaptation-rate
 
 ## 错误处理
 
-所有接口在出错时都会返回相应的HTTP状态码和错误信息：
+所有接口在出错时都会返回相应的 HTTP 状态码和错误信息：
 
 ```json
 {
@@ -215,7 +319,7 @@ GET /api/metrics/adaptation-rate
 
 ## 使用示例
 
-### Python示例
+### Python 示例
 ```python
 import requests
 
@@ -233,7 +337,7 @@ response = requests.post("http://localhost:5000/api/adaptation/component-based",
 print(response.json())
 ```
 
-### curl示例
+### curl 示例
 ```bash
 # 健康检查
 curl -X GET http://localhost:5000/api/health

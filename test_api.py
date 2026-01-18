@@ -1,5 +1,13 @@
 """
 信创组件适配评估系统 - API测试脚本
+
+测试列表：
+1. 测试健康检查接口
+2. 测试组件列表接口
+3. 测试基于组件的适配评估（使用数据：datas/components.json）
+4. 测试基于任务的适配评估（使用真实数据：datas目录下的CSV文件）
+5. 测试性能评估接口（使用真实数据：datas目录下的CSV文件）
+6. 测试容量外推接口（使用真实数据：datas目录下的CSV文件）
 """
 
 import requests
@@ -42,20 +50,40 @@ def test_task_based_adaptation():
     print("基于任务的适配评估:", json.dumps(response.json(), indent=2, ensure_ascii=False))
 
 def test_performance_evaluation():
-    """测试性能评估接口"""
+    """测试性能评估接口（基于CSV真实数据）"""
     data = {
         "database": "人大金仓 KingbaseES",
         "message_queue": "阿里 RabbitMQ",
-        "operating_system": "麒麟 Kylin V10",
-        "workload": "medium"
+        "operating_system": "麒麟 Kylin V10"
     }
     response = requests.post(f"{BASE_URL}/api/performance/evaluate", json=data)
     print("性能评估:", json.dumps(response.json(), indent=2, ensure_ascii=False))
 
-def test_adaptation_metrics():
-    """测试适配率指标接口"""
-    response = requests.get(f"{BASE_URL}/api/metrics/adaptation-rate")
-    print("适配率指标:", json.dumps(response.json(), indent=2, ensure_ascii=False))
+def test_capacity_extrapolation():
+    """测试容量外推接口：根据组件名称和目标性能计算所需CPU和内存"""
+    # 测试数据库容量外推
+    data_db = {
+        "component_name": "KingbaseES",
+        "component_type": "DB",
+        "target_tps": 1000,
+        "max_latency_ms": 100,
+        "test_cpu_cores": 4,
+        "test_memory_gb": 4.0
+    }
+    response = requests.post(f"{BASE_URL}/api/capacity/extrapolation", json=data_db)
+    print("数据库容量外推:", json.dumps(response.json(), indent=2, ensure_ascii=False))
+    
+    # 测试消息队列容量外推
+    data_mq = {
+        "component_name": "RabbitMQ",
+        "component_type": "MQ",
+        "target_msg_per_sec": 10000,
+        "max_latency_ms": 100,
+        "test_cpu_cores": 4,
+        "test_memory_gb": 4.0
+    }
+    response = requests.post(f"{BASE_URL}/api/capacity/extrapolation", json=data_mq)
+    print("\n消息队列容量外推:", json.dumps(response.json(), indent=2, ensure_ascii=False))
 
 if __name__ == "__main__":
     print("开始测试信创组件适配评估系统API...")
@@ -77,7 +105,7 @@ if __name__ == "__main__":
         test_performance_evaluation()
         print("\n" + "=" * 50)
         
-        test_adaptation_metrics()
+        test_capacity_extrapolation()
         print("\n" + "=" * 50)
         
         print("所有测试完成！")
