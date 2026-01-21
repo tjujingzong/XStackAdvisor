@@ -190,59 +190,7 @@ Content-Type: application/json
 }
 ```
 
-#### 获取真实环境数据库性能数据
-```http
-GET /api/performance/real-data/database
-GET /api/performance/real-data/database?component=KingbaseES
-GET /api/performance/real-data/database?component=KingbaseES&limit=100
-```
 
-**查询参数**:
-- `component`: 可选。组件名称过滤（如 `KingbaseES`）。
-- `limit`: 可选。返回记录数限制，默认 `100`。
-
-**响应示例**:
-```json
-{
-  "component": "KingbaseES",
-  "total_records": 2,
-  "data": [
-    {
-      "timestamp": "2025-12-20 19:26:50",
-      "clients": 10,
-      "tps_excluding": 1500.0,
-      "latency_ms_avg": 60.0
-    }
-  ]
-}
-```
-
-#### 获取真实环境消息队列性能数据
-```http
-GET /api/performance/real-data/message-queue
-GET /api/performance/real-data/message-queue?component=RabbitMQ
-GET /api/performance/real-data/message-queue?component=RabbitMQ&limit=100
-```
-
-**查询参数**:
-- `component`: 可选。组件名称过滤（如 `RabbitMQ`）。
-- `limit`: 可选。返回记录数限制，默认 `100`。
-
-**响应示例**:
-```json
-{
-  "component": "RabbitMQ",
-  "total_records": 2,
-  "data": [
-    {
-      "run_id": "1",
-      "avg_received_msg_s": 30000.0,
-      "worst_p95_ms": 1200.0,
-      "success": true
-    }
-  ]
-}
-```
 
 #### 容量外推
 ```http
@@ -285,22 +233,7 @@ Content-Type: application/json
 }
 ```
 
-### 5. 评估指标
 
-#### 获取适配率指标
-```http
-GET /api/metrics/adaptation-rate
-```
-
-**响应示例**:
-```json
-{
-  "database_message_queue_rate": 0.85,
-  "database_message_queue_dependency_rate": 0.80,
-  "database_operating_system_rate": 0.90,
-  "overall_accuracy": 0.85
-}
-```
 
 ## 错误处理
 

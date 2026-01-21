@@ -448,34 +448,6 @@ def load_mq_csv_data(component: Optional[str] = None, limit: int = 100) -> List[
         print(f"加载消息队列CSV数据失败: {e}")
         return []
 
-@app.route('/api/performance/real-data/database', methods=['GET'])
-def get_real_database_data():
-    """获取真实环境数据库性能数据"""
-    component = request.args.get('component', None)
-    limit = request.args.get('limit', 100, type=int)
-    
-    data = load_db_csv_data(component=component, limit=limit)
-    
-    return jsonify({
-        'component': component,
-        'total_records': len(data),
-        'data': data
-    })
-
-@app.route('/api/performance/real-data/message-queue', methods=['GET'])
-def get_real_message_queue_data():
-    """获取真实环境消息队列性能数据"""
-    component = request.args.get('component', None)
-    limit = request.args.get('limit', 100, type=int)
-    
-    data = load_mq_csv_data(component=component, limit=limit)
-    
-    return jsonify({
-        'component': component,
-        'total_records': len(data),
-        'data': data
-    })
-
 @app.route('/api/capacity/extrapolation', methods=['POST'])
 def capacity_extrapolation():
     """容量外推接口：根据组件名称和目标性能计算所需CPU和内存"""

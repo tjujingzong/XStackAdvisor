@@ -82,21 +82,30 @@ Content-Type: application/json
 
 返回从CSV文件中提取的真实性能数据，包括吞吐量、延迟、CPU和内存使用率等。
 
-### 6. 获取真实环境性能数据
+### 6. 容量外推（根据目标性能估算资源）
 ```
-GET /api/performance/real-data/database
-GET /api/performance/real-data/message-queue
-GET /api/performance/real-data/database?component=KingbaseES
-GET /api/performance/real-data/message-queue?component=RabbitMQ
-```
+POST /api/capacity/extrapolation
+Content-Type: application/json
 
-返回真实环境采集的CSV数据（JSON格式）。支持可选参数：
-- `component`: 组件名称过滤（如 "KingbaseES", "RabbitMQ"）
-- `limit`: 返回记录数限制（默认：100）
+# 数据库示例
+{
+  "component_name": "KingbaseES",
+  "component_type": "DB",
+  "target_tps": 1000,
+  "max_latency_ms": 100,
+  "test_cpu_cores": 4,
+  "test_memory_gb": 4.0
+}
 
-### 6. 适配率指标
-```
-GET /api/metrics/adaptation-rate
+# 消息队列示例
+{
+  "component_name": "RabbitMQ",
+  "component_type": "MQ",
+  "target_msg_per_sec": 10000,
+  "max_latency_ms": 100,
+  "test_cpu_cores": 4,
+  "test_memory_gb": 4.0
+}
 ```
 
 ## 数据结构
@@ -226,9 +235,7 @@ python collect_and_normalize.py \
 - ✅ 基于组件的适配评估 (`/api/adaptation/component-based`)
 - ✅ 基于任务的适配评估 (`/api/adaptation/task-based`)
 - ✅ 性能评估接口 (`/api/performance/evaluate`)
-- ✅ 适配率指标接口 (`/api/metrics/adaptation-rate`)
-- ✅ 真实环境数据库数据接口 (`/api/performance/real-data/database`)
-- ✅ 真实环境消息队列数据接口 (`/api/performance/real-data/message-queue`)
+- ✅ 容量外推接口 (`/api/capacity/extrapolation`)
 
 **测试示例输出：**
 ```
