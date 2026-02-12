@@ -4,48 +4,13 @@
 
 from flask import jsonify, request
 from app import app, COMPONENTS
-import json
-import os
 import pandas as pd
 import pathlib
-from typing import Optional, List, Dict
-from normalize_metrics import NormalizedMetrics
-
-@app.route('/api/health', methods=['GET'])
-def health_check():
-    """健康检查接口"""
-    return jsonify({
-        'status': 'healthy',
-        'message': '信创组件适配评估系统运行正常'
-    })
-
-@app.route('/api/components', methods=['GET'])
-def get_components():
-    """获取所有组件列表"""
-    return jsonify({
-        'databases': COMPONENTS.get('databases', []),
-        'message_queues': COMPONENTS.get('message_queues', []),
-        'operating_systems': COMPONENTS.get('operating_systems', [])
-    })
-
-@app.route('/api/components/databases', methods=['GET'])
-def get_databases():
-    """获取数据库组件列表"""
-    return jsonify(COMPONENTS.get('databases', []))
-
-@app.route('/api/components/message-queues', methods=['GET'])
-def get_message_queues():
-    """获取消息队列组件列表"""
-    return jsonify(COMPONENTS.get('message_queues', []))
-
-@app.route('/api/components/operating-systems', methods=['GET'])
-def get_operating_systems():
-    """获取操作系统组件列表"""
-    return jsonify(COMPONENTS.get('operating_systems', []))
+from typing import Optional
 
 @app.route('/api/adaptation/component-based', methods=['POST'])
 def component_based_adaptation():
-    """基于组件的适配评估"""
+    """基于组件的适配评估（要求操作系统必填，其余组件可选：数据库 / 消息队列 / 中间件）"""
     data = request.get_json()
     
     if not data:
@@ -55,121 +20,387 @@ def component_based_adaptation():
     target_db = data.get('target_database')
     target_mq = data.get('target_message_queue')
     target_os = data.get('target_operating_system')
+    target_middleware = data.get('target_middleware')
+
+    # 操作系统为必填参数
+    if not target_os:
+        return jsonify({'error': 'target_operating_system 为必填参数'}), 400
+
+    # 查找具体组件信息
+    db_comp = _find_component_by_name('databases', target_db) if target_db else None
+    mq_comp = _find_component_by_name('message_queues', target_mq) if target_mq else None
+    mw_comp = _find_component_by_name('middlewares', target_middleware) if target_middleware else None
+    os_comp = _find_component_by_name('operating_systems', target_os)
     
-    # 简单的兼容性检查逻辑
-    compatibility_score = calculate_compatibility_score(target_db, target_mq, target_os)
+    # 兼容性评分：针对用户选择的组合
+    compatibility_score = calculate_compatibility_score(db_comp, mq_comp, os_comp)
     
-    # 推荐相关组件
-    recommendations = get_component_recommendations(target_db, target_mq, target_os)
+    # 推荐相关组件（基于操作系统和当前已选组件）
+    recommendations = get_component_recommendations(
+        target_db,
+        target_mq,
+        target_os,
+        target_middleware=target_middleware,
+    )
+    
+    # 获取选中组件的详细信息（包含依赖项）
+    selected_components = {}
+    if db_comp:
+        selected_components['database'] = {
+            'id': db_comp.get('id'),
+            'name': db_comp.get('name'),
+            'version': db_comp.get('version'),
+            'vendor': db_comp.get('vendor'),
+            'protocol': db_comp.get('protocol'),
+            'dependencies': db_comp.get('dependencies', []),
+        }
+    if mq_comp:
+        selected_components['message_queue'] = {
+            'id': mq_comp.get('id'),
+            'name': mq_comp.get('name'),
+            'version': mq_comp.get('version'),
+            'vendor': mq_comp.get('vendor'),
+            'protocol': mq_comp.get('protocol'),
+            'dependencies': mq_comp.get('dependencies', []),
+        }
+    if mw_comp:
+        selected_components['middleware'] = {
+            'id': mw_comp.get('id'),
+            'name': mw_comp.get('name'),
+            'version': mw_comp.get('version'),
+            'vendor': mw_comp.get('vendor'),
+            'protocol': mw_comp.get('protocol'),
+            'dependencies': mw_comp.get('dependencies', []),
+        }
+    if os_comp:
+        selected_components['operating_system'] = {
+            'id': os_comp.get('id'),
+            'name': os_comp.get('name'),
+            'version': os_comp.get('version'),
+            'vendor': os_comp.get('vendor'),
+            'architecture': os_comp.get('architecture'),
+            'kernel_version': os_comp.get('kernel_version'),
+            'dependencies': os_comp.get('dependencies', []),
+        }
     
     return jsonify({
-        'compatibility_score': compatibility_score,
+        'compatibility_score': round(compatibility_score, 3),
         'is_compatible': compatibility_score > 0.7,
+        'selected_components': selected_components,
         'recommendations': recommendations,
-        'dependencies': get_dependencies(target_db, target_mq, target_os)
+        'dependencies': get_dependencies(
+            db_comp or target_db,
+            mq_comp or target_mq,
+            os_comp or target_os,
+            mw_comp or target_middleware,
+        ),
     })
 
 @app.route('/api/adaptation/task-based', methods=['POST'])
 def task_based_adaptation():
-    """基于任务的适配评估（基于CSV真实数据）"""
+    """基于任务的适配评估（当前使用假的评估数据；不依赖CSV）"""
     data = request.get_json()
-    
+
     if not data:
         return jsonify({'error': '请求数据不能为空'}), 400
-    
-    # 获取任务约束
+
     task_type = data.get('task_type', 'OLTP')
     max_response_time = data.get('max_response_time', 1000)  # ms
     min_throughput = data.get('min_throughput', 1000)  # TPS
     resource_constraints = data.get('resource_constraints', {})
-    
-    # 从CSV数据中查找满足条件的组件组合
-    recommendations = get_task_recommendations_from_csv(
-        task_type, max_response_time, min_throughput, resource_constraints
+
+    recommendations = get_task_recommendations_mock(
+        task_type=task_type,
+        max_response_time=max_response_time,
+        min_throughput=min_throughput,
+        resource_constraints=resource_constraints,
     )
-    
+
     return jsonify({
         'task_type': task_type,
         'constraints': {
             'max_response_time': max_response_time,
             'min_throughput': min_throughput,
-            'resource_constraints': resource_constraints
+            'resource_constraints': resource_constraints,
         },
-        'recommendations': recommendations
+        'recommendations': recommendations,
     })
 
-@app.route('/api/performance/evaluate', methods=['POST'])
-def evaluate_performance():
-    """性能评估接口（基于CSV真实数据）"""
-    data = request.get_json()
-    
-    if not data:
-        return jsonify({'error': '请求数据不能为空'}), 400
-    
-    db_name = data.get('database')
-    mq_name = data.get('message_queue')
-    os_name = data.get('operating_system')
-    
-    # 从CSV数据中获取性能数据
-    performance_data = get_performance_data_from_csv(db_name, mq_name)
-    
-    return jsonify({
-        'components': {
-            'database': db_name,
-            'message_queue': mq_name,
-            'operating_system': os_name
-        },
-        'performance_metrics': performance_data
-    })
 
-# 辅助函数
 def calculate_compatibility_score(db, mq, os):
-    """计算兼容性评分"""
-    # 简化的兼容性计算逻辑
+    """计算兼容性评分（基于协议和操作系统兼容标签）"""
     score = 0.8  # 基础分
-    
-    # 根据协议兼容性调整
-    if db and mq:
-        if 'JDBC' in str(db) and 'AMQP' in str(mq):
+
+    # 提取协议和名称信息（兼容字符串或组件字典）
+    def _extract_protocol(comp) -> str:
+        if isinstance(comp, dict):
+            return str(comp.get('protocol', ''))
+        return str(comp) if comp else ''
+
+    def _extract_os_name(comp) -> str:
+        if isinstance(comp, dict):
+            return str(comp.get('name', ''))
+        return str(comp) if comp else ''
+
+    def _extract_os_tags(comp):
+        if isinstance(comp, dict):
+            return comp.get('compatibility_tags', []) or []
+        return []
+
+    db_protocol = _extract_protocol(db)
+    mq_protocol = _extract_protocol(mq)
+    os_name = _extract_os_name(os)
+    os_tags = _extract_os_tags(os)
+
+    # 根据协议兼容性调整：JDBC/ODBC + AMQP 组合更优
+    if db_protocol and mq_protocol:
+        if (('JDBC' in db_protocol) or ('ODBC' in db_protocol)) and ('AMQP' in mq_protocol):
             score += 0.1
-    if os and 'Linux' in str(os):
-        score += 0.1
-    
+
+    # 根据操作系统及其兼容标签调整
+    if os_name or os_tags:
+        if 'Linux' in os_name or any(tag in ('Linux', 'Debian', 'Ubuntu') for tag in os_tags):
+            score += 0.1
+
     return min(score, 1.0)
 
-def get_component_recommendations(db, mq, os):
-    """获取组件推荐"""
+
+def get_component_recommendations(
+    target_db: Optional[str],
+    target_mq: Optional[str],
+    target_os: str,
+    target_middleware: Optional[str] = None,
+):
+    """
+    获取组件推荐（逻辑对称、简洁）：
+    - 操作系统必选
+    - 针对用户「未选择」的组件类型返回推荐：
+      - 未选数据库 => 推荐数据库
+      - 未选消息队列 => 推荐消息队列
+      - 未选中间件   => 推荐中间件
+    """
+    recommendations = []
+
+    os_comp = _find_component_by_name('operating_systems', target_os)
+    selected_db = _find_component_by_name('databases', target_db) if target_db else None
+    selected_mq = _find_component_by_name('message_queues', target_mq) if target_mq else None
+    selected_mw = _find_component_by_name('middlewares', target_middleware) if target_middleware else None
+
+    # 数据库推荐：只有在用户没有选择数据库时才推荐
+    if not selected_db:
+        db_candidates = []
+        for db in COMPONENTS.get('databases', []):
+            score = calculate_compatibility_score(db, selected_mq, os_comp)
+            db_candidates.append({
+                'id': db.get('id'),
+                'name': db.get('name'),
+                'vendor': db.get('vendor'),
+                'version': db.get('version'),
+                'protocol': db.get('protocol'),
+                'dependencies': db.get('dependencies', []),
+                'score': round(score, 3),
+            })
+
+        db_candidates.sort(key=lambda x: x['score'], reverse=True)
+        if db_candidates:
+            recommendations.append({
+                'type': 'database',
+                'recommended': [
+                    {
+                        **db_item,
+                        'reason': '基于与当前操作系统和已选组件的兼容性评分',
+                    }
+                    for db_item in db_candidates[:3]
+                ],
+            })
+
+    # 消息队列推荐：只有在用户没有选择消息队列时才推荐
+    if not selected_mq:
+        mq_candidates = []
+        for mq in COMPONENTS.get('message_queues', []):
+            score = calculate_compatibility_score(selected_db, mq, os_comp)
+            mq_candidates.append({
+                'id': mq.get('id'),
+                'name': mq.get('name'),
+                'vendor': mq.get('vendor'),
+                'version': mq.get('version'),
+                'protocol': mq.get('protocol'),
+                'dependencies': mq.get('dependencies', []),
+                'score': round(score, 3),
+            })
+
+        mq_candidates.sort(key=lambda x: x['score'], reverse=True)
+        if mq_candidates:
+            recommendations.append({
+                'type': 'message_queue',
+                'recommended': [
+                    {
+                        **mq_item,
+                        'reason': '基于与当前操作系统和已选组件的兼容性评分',
+                    }
+                    for mq_item in mq_candidates[:3]
+                ],
+            })
+
+    # 中间件推荐：只有在用户没有选择中间件时才推荐
+    if not selected_mw:
+        mw_candidates = []
+        for mw in COMPONENTS.get('middlewares', []):
+            # 复用数据库 + 消息类组件 + 操作系统的评分逻辑
+            score = calculate_compatibility_score(selected_db, mw, os_comp)
+            mw_candidates.append({
+                'id': mw.get('id'),
+                'name': mw.get('name'),
+                'vendor': mw.get('vendor'),
+                'version': mw.get('version'),
+                'protocol': mw.get('protocol'),
+                'dependencies': mw.get('dependencies', []),
+                'score': round(score, 3),
+            })
+
+        mw_candidates.sort(key=lambda x: x['score'], reverse=True)
+        if mw_candidates:
+            recommendations.append({
+                'type': 'middleware',
+                'recommended': [
+                    {
+                        **mw_item,
+                        'reason': '基于与当前操作系统和已选组件的兼容性评分',
+                    }
+                    for mw_item in mw_candidates[:3]
+                ],
+            })
+
+    return recommendations
+
+
+def get_dependencies(db, mq, os, middleware=None):
+    """获取依赖环境：
+    - 避免与 selected_components 中的组件依赖重复
+    - 仅在传入的是“名称字符串”等简单形式时，补充通用依赖
+    - 始终补充通用运行环境依赖（runtime）
+    """
+    dependencies = []
+
+    def _name(comp):
+        if isinstance(comp, dict):
+            return comp.get('name')
+        return comp
+
+    # 对于 dict（已经在 selected_components 中返回了详细信息）的组件，
+    # 这里不再重复列出；只有在传入的是字符串等简单形式时才补充一份通用依赖。
+
+    if db and not isinstance(db, dict):
+        dependencies.append({
+            'component_type': 'database',
+            'component_name': _name(db),
+            'items': [
+                '数据库 JDBC/ODBC 驱动',
+                '连接池配置（如 HikariCP、Druid）',
+                '数据库客户端工具和监控组件',
+            ],
+        })
+
+    if mq and not isinstance(mq, dict):
+        dependencies.append({
+            'component_type': 'message_queue',
+            'component_name': _name(mq),
+            'items': [
+                'AMQP/JMS 客户端 SDK',
+                '消息队列管理控制台',
+                '网络端口和安全策略配置',
+            ],
+        })
+
+    if middleware and not isinstance(middleware, dict):
+        dependencies.append({
+            'component_type': 'middleware',
+            'component_name': _name(middleware),
+            'items': [
+                'JMS/AMQP 客户端 SDK',
+                '中间件管理控制台',
+                '网络端口和安全策略配置',
+            ],
+        })
+
+    if os and not isinstance(os, dict):
+        dependencies.append({
+            'component_type': 'operating_system',
+            'component_name': _name(os),
+            'items': [
+                'Linux 内核 3.10+ 或等效版本',
+                'glibc 等基础运行时库',
+                '系统调优参数（文件句柄数、网络缓冲区等）',
+            ],
+        })
+
+    # 通用运行环境依赖
+    dependencies.append({
+        'component_type': 'runtime',
+        'component_name': '通用运行环境',
+        'items': [
+            'Python 3.7+',
+            'Java 8+',
+            'TCP/IP 网络和 HTTP/HTTPS 协议栈',
+        ],
+    })
+
+    return dependencies
+
+import uuid
+import time
+import random
+
+def get_task_recommendations_mock(task_type, max_response_time, min_throughput, resource_constraints):
+    """
+    生成模拟的推荐方案逻辑，包含数据库、消息队列和中间件
+    """
     recommendations = []
     
-    # 数据库推荐
-    if db:
+    # 从全局 COMPONENTS 中获取真实存在的组件名称，以增强真实感
+    db_names = [d['name'] for d in COMPONENTS.get('databases', [])] or ["达梦数据库", "人大金仓 KingbaseES"]
+    mq_names = [m['name'] for m in COMPONENTS.get('message_queues', [])] or ["阿里 RabbitMQ", "宝兰德 BES MQ"]
+    mw_names = [w['name'] for w in COMPONENTS.get('middlewares', [])] or ["东方通 TongLink/Q", "阿里 Tengine"]
+    os_names = [o['name'] for o in COMPONENTS.get('operating_systems', [])] or ["麒麟 Kylin", "统信 UOS"]
+
+    # 生成 3 个推荐方案
+    for i in range(3):
+        db = random.choice(db_names)
+        mq = random.choice(mq_names)
+        mw = random.choice(mw_names)
+        os_name = random.choice(os_names)
+        
+        # 模拟性能指标：确保符合约束
+        perf_throughput = min_throughput + random.randint(100, 500)
+        perf_latency = max_response_time - random.randint(10, 100)
+        
         recommendations.append({
-            'type': 'database',
-            'recommended': COMPONENTS.get('databases', [])[:3],
-            'reason': '基于协议兼容性推荐'
-        })
-    
-    # 消息队列推荐
-    if mq:
-        recommendations.append({
-            'type': 'message_queue',
-            'recommended': COMPONENTS.get('message_queues', [])[:3],
-            'reason': '基于性能表现推荐'
+            'id': f"plan-{i+1}",
+            'name': f"方案 {i+1}: {task_type} 优化组合",
+            'database': db,
+            'message_queue': mq,
+            'middleware': mw,
+            'operating_system': os_name,
+            'estimated_performance': {
+                'throughput': perf_throughput,
+                'response_time_ms': perf_latency,
+                'score': round(random.uniform(0.85, 0.98), 2)
+            },
+            'resource_requirements': {
+                'cpu_cores': resource_constraints.get('max_cpu_cores', 8),
+                'memory_gb': resource_constraints.get('max_memory_gb', 16),
+                'storage_gb': 100
+            },
         })
     
     return recommendations
 
-def get_dependencies(db, mq, os):
-    """获取依赖环境"""
-    return {
-        'runtime_requirements': ['Java 8+', 'Python 3.7+'],
-        'driver_requirements': ['JDBC驱动', 'AMQP客户端'],
-        'protocol_stack': ['TCP/IP', 'HTTP/HTTPS'],
-        'os_requirements': ['Linux内核3.10+']
-    }
-
 def get_task_recommendations_from_csv(task_type, max_response_time, min_throughput, resource_constraints):
-    """根据任务约束从CSV数据中获取推荐"""
+    """
+    根据任务约束从CSV数据中获取推荐
+    - 支持任务类型：OLTP、ALTP（当前按相同规则过滤，只是类型标识不同）
+    - 推荐方案尽量给出三个组合
+    """
     recommendations = []
     data_dir = pathlib.Path('datas')
     
@@ -186,10 +417,10 @@ def get_task_recommendations_from_csv(task_type, max_response_time, min_throughp
     # 查找消息队列CSV文件
     mq_csv = find_latest_csv(data_dir, "*perftest_summary_*.csv")
     
-    db_data = None
-    mq_data = None
+    db_candidates = []
+    mq_candidates = []
     
-    # 加载数据库数据
+    # 加载数据库数据：按 TPS 从高到低取前 3 条
     if db_csv and db_csv.exists():
         try:
             df_db = pd.read_csv(db_csv)
@@ -200,20 +431,20 @@ def get_task_recommendations_from_csv(task_type, max_response_time, min_throughp
                 (df_db['return_code'] == 0)
             ]
             if len(valid_db) > 0:
-                # 选择最佳性能记录（最高TPS）
-                best_db = valid_db.loc[valid_db['tps_excluding'].idxmax()]
-                db_data = {
-                    'component': db_csv.name.split('_')[0] if '_' in db_csv.name else 'Unknown',
-                    'tps': float(best_db['tps_excluding']),
-                    'latency_ms': float(best_db['latency_ms_avg']),
-                    'cpu_usage': float(best_db.get('avg_cpu_percent', 0)),
-                    'memory_usage': float(best_db.get('avg_memory_percent', 0)),
-                    'memory_gb': float(best_db.get('avg_memory_used_gb', 0))
-                }
+                valid_db = valid_db.sort_values(by='tps_excluding', ascending=False).head(3)
+                for _, row in valid_db.iterrows():
+                    db_candidates.append({
+                        'component': db_csv.name.split('_')[0] if '_' in db_csv.name else 'Unknown',
+                        'tps': float(row['tps_excluding']),
+                        'latency_ms': float(row['latency_ms_avg']),
+                        'cpu_usage': float(row.get('avg_cpu_percent', 0)),
+                        'memory_usage': float(row.get('avg_memory_percent', 0)),
+                        'memory_gb': float(row.get('avg_memory_used_gb', 0))
+                    })
         except Exception as e:
             print(f"加载数据库CSV数据失败: {e}")
     
-    # 加载消息队列数据
+    # 加载消息队列数据：按吞吐量从高到低取前 3 条
     if mq_csv and mq_csv.exists():
         try:
             df_mq = pd.read_csv(mq_csv)
@@ -224,21 +455,24 @@ def get_task_recommendations_from_csv(task_type, max_response_time, min_throughp
                 (df_mq['success'] == True)
             ]
             if len(valid_mq) > 0:
-                # 选择最佳性能记录（最高吞吐量）
-                best_mq = valid_mq.loc[valid_mq['avg_received_msg_s'].idxmax()]
-                mq_data = {
-                    'component': mq_csv.name.split('_')[0] if '_' in mq_csv.name else 'Unknown',
-                    'throughput': float(best_mq['avg_received_msg_s']),
-                    'latency_p95_ms': float(best_mq['worst_p95_ms']),
-                    'cpu_usage': float(best_mq.get('avg_cpu_percent', 0)),
-                    'memory_usage': float(best_mq.get('avg_memory_percent', 0)),
-                    'memory_gb': float(best_mq.get('avg_memory_used_gb', 0))
-                }
+                valid_mq = valid_mq.sort_values(by='avg_received_msg_s', ascending=False).head(3)
+                for _, row in valid_mq.iterrows():
+                    mq_candidates.append({
+                        'component': mq_csv.name.split('_')[0] if '_' in mq_csv.name else 'Unknown',
+                        'throughput': float(row['avg_received_msg_s']),
+                        'latency_p95_ms': float(row['worst_p95_ms']),
+                        'cpu_usage': float(row.get('avg_cpu_percent', 0)),
+                        'memory_usage': float(row.get('avg_memory_percent', 0)),
+                        'memory_gb': float(row.get('avg_memory_used_gb', 0))
+                    })
         except Exception as e:
             print(f"加载消息队列CSV数据失败: {e}")
     
-    # 构建推荐结果
-    if db_data and mq_data:
+    # 构建推荐结果：最多返回 3 个组合
+    count = min(3, len(db_candidates), len(mq_candidates))
+    for i in range(count):
+        db_data = db_candidates[i]
+        mq_data = mq_candidates[i]
         recommendations.append({
             'database': db_data['component'],
             'message_queue': mq_data['component'],
@@ -264,63 +498,16 @@ def get_task_recommendations_from_csv(task_type, max_response_time, min_throughp
     
     return recommendations
 
-def get_performance_data_from_csv(db, mq):
-    """从CSV数据中获取性能数据"""
-    result = {}
-    data_dir = pathlib.Path('datas')
-    
-    if not data_dir.exists():
-        return result
-    
-    # 获取数据库性能数据
-    if db:
-        db_csv = data_dir / "results.csv"
-        if not db_csv.exists():
-            db_csv = find_latest_csv(data_dir, "*_kbbench_results_*.csv")
-        if db_csv is None:
-            db_csv = find_latest_csv(data_dir, "*kbbench*.csv")
-        
-        if db_csv and db_csv.exists():
-            try:
-                df_db = pd.read_csv(db_csv)
-                # 过滤有效记录
-                valid_db = df_db[df_db['return_code'] == 0]
-                if len(valid_db) > 0:
-                    # 计算平均值或使用最佳值
-                    best_db = valid_db.loc[valid_db['tps_excluding'].idxmax()]
-                    result['database'] = {
-                        'throughput_tps': float(best_db['tps_excluding']),
-                        'latency_ms_avg': float(best_db['latency_ms_avg']),
-                        'cpu_usage_percent': float(best_db.get('avg_cpu_percent', 0)),
-                        'memory_usage_percent': float(best_db.get('avg_memory_percent', 0)),
-                        'memory_used_gb': float(best_db.get('avg_memory_used_gb', 0))
-                    }
-            except Exception as e:
-                print(f"加载数据库性能数据失败: {e}")
-    
-    # 获取消息队列性能数据
-    if mq:
-        mq_csv = find_latest_csv(data_dir, "*perftest_summary_*.csv")
-        
-        if mq_csv and mq_csv.exists():
-            try:
-                df_mq = pd.read_csv(mq_csv)
-                # 过滤成功记录
-                valid_mq = df_mq[df_mq['success'] == True]
-                if len(valid_mq) > 0:
-                    # 选择最佳性能记录
-                    best_mq = valid_mq.loc[valid_mq['avg_received_msg_s'].idxmax()]
-                    result['message_queue'] = {
-                        'throughput_msg_per_sec': float(best_mq['avg_received_msg_s']),
-                        'latency_p95_ms': float(best_mq['worst_p95_ms']),
-                        'cpu_usage_percent': float(best_mq.get('avg_cpu_percent', 0)),
-                        'memory_usage_percent': float(best_mq.get('avg_memory_percent', 0)),
-                        'memory_used_gb': float(best_mq.get('avg_memory_used_gb', 0))
-                    }
-            except Exception as e:
-                print(f"加载消息队列性能数据失败: {e}")
-    
-    return result
+
+def _find_component_by_name(category: str, name: Optional[str]):
+    """在 COMPONENTS 中按名称查找组件"""
+    if not name:
+        return None
+    for comp in COMPONENTS.get(category, []):
+        if comp.get('name') == name:
+            return comp
+    return None
+
 
 # 真实环境数据读取函数
 def find_latest_csv(directory: pathlib.Path, pattern: str) -> Optional[pathlib.Path]:
@@ -330,234 +517,3 @@ def find_latest_csv(directory: pathlib.Path, pattern: str) -> Optional[pathlib.P
         return None
     return max(files, key=lambda p: p.stat().st_mtime)
 
-def load_db_csv_data(component: Optional[str] = None, limit: int = 100) -> List[Dict]:
-    """
-    加载数据库测试结果CSV数据
-    
-    Args:
-        component: 组件名称过滤（如 "KingbaseES"）
-        limit: 返回记录数限制
-    
-    Returns:
-        数据库测试结果列表
-    """
-    data_dir = pathlib.Path('datas')
-    if not data_dir.exists():
-        return []
-    
-    # 查找数据库测试结果文件
-    db_csv = data_dir / "results.csv"
-    if not db_csv.exists():
-        db_csv = find_latest_csv(data_dir, "*_kbbench_results_*.csv")
-    if db_csv is None:
-        db_csv = find_latest_csv(data_dir, "*kbbench*.csv")
-    
-    if db_csv is None or not db_csv.exists():
-        return []
-    
-    try:
-        df = pd.read_csv(db_csv)
-        
-        # 如果指定了组件名称，进行过滤
-        if component:
-            # 从文件名或数据中匹配组件名
-            if component.lower() not in db_csv.name.lower():
-                return []
-        
-        # 处理可选字段：将 NaN 和空字符串转换为 None
-        df = df.replace([pd.NA, pd.NaT, ''], None)
-        df = df.where(pd.notnull(df), None)
-        
-        # 限制返回记录数
-        if len(df) > limit:
-            df = df.head(limit)
-        
-        # 转换为字典列表
-        records = df.to_dict('records')
-        
-        # 清理数据：移除空字符串和 None 值的字段（可选字段）
-        # 但保留数字 0 和 False 值
-        cleaned_records = []
-        for record in records:
-            cleaned = {}
-            for k, v in record.items():
-                # 保留所有非 None 和非空字符串的值
-                if v is not None and v != '':
-                    cleaned[k] = v
-            cleaned_records.append(cleaned)
-        
-        return cleaned_records
-    except Exception as e:
-        print(f"加载数据库CSV数据失败: {e}")
-        return []
-
-def load_mq_csv_data(component: Optional[str] = None, limit: int = 100) -> List[Dict]:
-    """
-    加载消息队列测试结果CSV数据
-    
-    Args:
-        component: 组件名称过滤（如 "RabbitMQ"）
-        limit: 返回记录数限制
-    
-    Returns:
-        消息队列测试结果列表
-    """
-    data_dir = pathlib.Path('datas')
-    if not data_dir.exists():
-        return []
-    
-    # 查找消息队列测试结果文件
-    mq_csv = find_latest_csv(data_dir, "*perftest_summary_*.csv")
-    
-    if mq_csv is None or not mq_csv.exists():
-        return []
-    
-    try:
-        df = pd.read_csv(mq_csv)
-        
-        # 如果指定了组件名称，进行过滤
-        if component:
-            # 从文件名或数据中匹配组件名
-            if component.lower() not in mq_csv.name.lower():
-                return []
-        
-        # 处理可选字段：将 NaN 和空字符串转换为 None
-        df = df.replace([pd.NA, pd.NaT, ''], None)
-        df = df.where(pd.notnull(df), None)
-        
-        # 限制返回记录数
-        if len(df) > limit:
-            df = df.head(limit)
-        
-        # 转换为字典列表
-        records = df.to_dict('records')
-        
-        # 清理数据：移除空字符串和 None 值的字段（可选字段）
-        # 但保留数字 0 和 False 值
-        cleaned_records = []
-        for record in records:
-            cleaned = {}
-            for k, v in record.items():
-                # 保留所有非 None 和非空字符串的值
-                if v is not None and v != '':
-                    cleaned[k] = v
-            cleaned_records.append(cleaned)
-        
-        return cleaned_records
-    except Exception as e:
-        print(f"加载消息队列CSV数据失败: {e}")
-        return []
-
-@app.route('/api/capacity/extrapolation', methods=['POST'])
-def capacity_extrapolation():
-    """容量外推接口：根据组件名称和目标性能计算所需CPU和内存"""
-    data = request.get_json()
-    
-    if not data:
-        return jsonify({'error': '请求数据不能为空'}), 400
-    
-    component_name = data.get('component_name')
-    component_type = data.get('component_type')  # 'DB' 或 'MQ'
-    target_tps = data.get('target_tps')  # 数据库目标TPS
-    target_msg_per_sec = data.get('target_msg_per_sec')  # 消息队列目标消息/秒
-    max_latency_ms = data.get('max_latency_ms', 1000)  # 最大延迟（ms）
-    test_cpu_cores = data.get('test_cpu_cores', 4)  # 测试环境CPU核心数
-    test_memory_gb = data.get('test_memory_gb', 4.0)  # 测试环境内存GB
-    
-    if not component_name or not component_type:
-        return jsonify({'error': 'component_name 和 component_type 是必需的'}), 400
-    
-    if component_type == 'DB' and not target_tps:
-        return jsonify({'error': '数据库类型需要提供 target_tps'}), 400
-    
-    if component_type == 'MQ' and not target_msg_per_sec:
-        return jsonify({'error': '消息队列类型需要提供 target_msg_per_sec'}), 400
-    
-    try:
-        # 加载归一化数据
-        normalizer = NormalizedMetrics(cpu_cores=test_cpu_cores, memory_gb=test_memory_gb)
-        
-        # 直接从CSV文件加载数据并归一化
-        normalized_data = []
-        data_dir = pathlib.Path('datas')
-        
-        if component_type == 'DB':
-            # 查找数据库CSV文件
-            db_csv = data_dir / "results.csv"
-            if not db_csv.exists():
-                db_csv = find_latest_csv(data_dir, "*_kbbench_results_*.csv")
-            if db_csv is None:
-                db_csv = find_latest_csv(data_dir, "*kbbench*.csv")
-            
-            if db_csv and db_csv.exists():
-                # 检查组件名称是否匹配
-                if component_name.lower() not in db_csv.name.lower():
-                    return jsonify({'error': f'未找到组件 {component_name} 的测试数据文件'}), 404
-                
-                df = pd.read_csv(db_csv)
-                normalized_df = normalizer.normalize_db_metrics(df, component_name)
-                normalized_data.append(normalized_df)
-        elif component_type == 'MQ':
-            # 查找消息队列CSV文件
-            mq_csv = find_latest_csv(data_dir, "*perftest_summary_*.csv")
-            
-            if mq_csv and mq_csv.exists():
-                # 检查组件名称是否匹配
-                if component_name.lower() not in mq_csv.name.lower():
-                    return jsonify({'error': f'未找到组件 {component_name} 的测试数据文件'}), 404
-                
-                df = pd.read_csv(mq_csv)
-                normalized_df = normalizer.normalize_mq_metrics(df, component_name)
-                normalized_data.append(normalized_df)
-        
-        if not normalized_data:
-            return jsonify({'error': f'未找到组件 {component_name} 的测试数据'}), 404
-        
-        # 合并归一化数据
-        normalized_df = pd.concat(normalized_data, ignore_index=True)
-        
-        # 构建目标SLO
-        if component_type == 'DB':
-            target_slo = {
-                'component_type': 'DB',
-                'target_tps': target_tps,
-                'max_latency_ms': max_latency_ms
-            }
-        else:
-            target_slo = {
-                'component_type': 'MQ',
-                'target_msg_per_sec': target_msg_per_sec,
-                'max_p95_ms': max_latency_ms
-            }
-        
-        # 执行容量外推
-        recommendations = normalizer.generate_capacity_extrapolation(normalized_df, target_slo)
-        
-        if len(recommendations) == 0:
-            return jsonify({
-                'error': '未找到满足SLO要求的基准数据',
-                'component_name': component_name,
-                'component_type': component_type
-            }), 404
-        
-        # 转换为字典格式返回
-        result = recommendations.iloc[0].to_dict()
-        
-        return jsonify({
-            'component_name': component_name,
-            'component_type': component_type,
-            'recommendations': {
-                'required_cpu_cores': int(result.get('required_cpu_cores', 0)),
-                'required_memory_gb': int(result.get('required_memory_gb', 0)),
-                'estimated_latency_ms': result.get('estimated_latency_ms') if component_type == 'DB' else result.get('estimated_p95_ms'),
-                'baseline_metrics': {
-                    'tps_per_core': result.get('baseline_tps_per_core') if component_type == 'DB' else None,
-                    'msg_per_sec_per_core': result.get('baseline_msg_per_sec_per_core') if component_type == 'MQ' else None,
-                    'cpu_utilization_pct': result.get('baseline_cpu_utilization_pct'),
-                    'memory_utilization_pct': result.get('baseline_memory_utilization_pct')
-                }
-            }
-        })
-        
-    except Exception as e:
-        return jsonify({'error': f'容量外推计算失败: {str(e)}'}), 500
