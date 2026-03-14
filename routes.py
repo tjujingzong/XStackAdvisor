@@ -6,7 +6,125 @@ from flask import jsonify, request
 from app import app, COMPONENTS
 import pandas as pd
 import pathlib
+import json
 from typing import Optional
+
+# ── 真值表加载 ──────────────────────────────────────────────────────────────
+
+_GROUND_TRUTH = None
+
+def _load_ground_truth() -> dict:
+    global _GROUND_TRUTH
+    if _GROUND_TRUTH is not None:
+        return _GROUND_TRUTH
+    gt_path = pathlib.Path('datas/ground_truth.json')
+    if gt_path.exists():
+        with open(gt_path, 'r', encoding='utf-8') as f:
+            _GROUND_TRUTH = json.load(f)
+    else:
+        _GROUND_TRUTH = {}
+    return _GROUND_TRUTH
+
+
+def _gt_name_match(gt_dict: dict, name: str):
+    """在真值表字典中查找键：先精确匹配，再前缀/子串匹配。"""
+    if name in gt_dict:
+        return gt_dict[name]
+    for key, val in gt_dict.items():
+        if key in name or name in key:
+            return val
+    return None
+
+
+# ── 准确性计算 ──────────────────────────────────────────────────────────────
+
+def calculate_component_accuracy(
+    db_name: Optional[str],
+    mq_name: Optional[str],
+    os_name: Optional[str],
+    is_compatible: bool,
+    selected_components: dict,
+) -> Optional[float]:
+    """
+    基于组件适配评估的准确性，三个维度加权：
+      - DB×MQ 兼容性判断  40%
+      - DB×OS 兼容性判断  40%
+      - 依赖关键词识别率  20%
+    """
+    gt = _load_ground_truth()
+    if not gt:
+        return None
+
+    scores, weights = [], []
+
+    # 1. DB×MQ 兼容性
+    if db_name and mq_name:
+        db_mq_row = _gt_name_match(gt.get('db_mq_compatibility', {}), db_name)
+        if db_mq_row is not None:
+            gt_val = _gt_name_match(db_mq_row, mq_name)
+            if gt_val is not None:
+                scores.append(1.0 if is_compatible == gt_val else 0.0)
+                weights.append(0.4)
+
+    # 2. DB×OS 兼容性
+    if db_name and os_name:
+        db_os_row = _gt_name_match(gt.get('db_os_compatibility', {}), db_name)
+        if db_os_row is not None:
+            gt_val = _gt_name_match(db_os_row, os_name)
+            if gt_val is not None:
+                scores.append(1.0 if is_compatible == gt_val else 0.0)
+                weights.append(0.4)
+
+    # 3. 依赖关键词识别率
+    dep_kw = gt.get('dependency_keywords', {})
+    dep_scores = []
+    for comp_type, comp_data in selected_components.items():
+        required = dep_kw.get(comp_type, [])
+        if not required:
+            continue
+        deps = comp_data.get('dependencies', [])
+        deps_text = ' '.join(deps).lower()
+        matched = sum(1 for kw in required if kw.lower() in deps_text)
+        dep_scores.append(matched / len(required))
+    if dep_scores:
+        scores.append(sum(dep_scores) / len(dep_scores))
+        weights.append(0.2)
+
+    if not scores:
+        return None
+
+    total_w = sum(weights)
+    return round(sum(s * w for s, w in zip(scores, weights)) / total_w, 3)
+
+
+def calculate_task_accuracy(task_type: str, recommendations: list) -> Optional[float]:
+    """
+    基于任务适配评估的准确性：
+    推荐组合中 DB / MQ / OS / 中间件均在真值表兼容列表内的比例。
+    """
+    gt = _load_ground_truth()
+    if not gt or not recommendations:
+        return None
+
+    task_gt = gt.get('task_recommendations', {}).get(task_type)
+    if not task_gt:
+        return None
+
+    compat_db  = task_gt.get('compatible_databases', [])
+    compat_mq  = task_gt.get('compatible_mq', [])
+    compat_os  = task_gt.get('compatible_os', [])
+    compat_mw  = task_gt.get('compatible_middlewares', [])
+
+    correct = 0
+    for rec in recommendations:
+        db_ok = not compat_db  or rec.get('database')          in compat_db
+        mq_ok = not compat_mq  or rec.get('message_queue')     in compat_mq
+        os_ok = not compat_os  or rec.get('operating_system')  in compat_os
+        mw_ok = not compat_mw  or rec.get('middleware')        in compat_mw
+        if db_ok and mq_ok and os_ok and mw_ok:
+            correct += 1
+
+    return round(correct / len(recommendations), 3)
 
 @app.route('/api/adaptation/component-based', methods=['POST'])
 def component_based_adaptation():
@@ -83,9 +201,18 @@ def component_based_adaptation():
             'dependencies': os_comp.get('dependencies', []),
         }
     
+    accuracy = calculate_component_accuracy(
+        db_name=target_db,
+        mq_name=target_mq,
+        os_name=target_os,
+        is_compatible=compatibility_score > 0.7,
+        selected_components=selected_components,
+    )
+
     return jsonify({
         'compatibility_score': round(compatibility_score, 3),
         'is_compatible': compatibility_score > 0.7,
+        'accuracy': accuracy,
         'selected_components': selected_components,
         'recommendations': recommendations,
         'dependencies': get_dependencies(
@@ -116,6 +243,8 @@ def task_based_adaptation():
         resource_constraints=resource_constraints,
     )
 
+    accuracy = calculate_task_accuracy(task_type, recommendations)
+
     return jsonify({
         'task_type': task_type,
         'constraints': {
@@ -123,6 +252,7 @@ def task_based_adaptation():
             'min_throughput': min_throughput,
             'resource_constraints': resource_constraints,
         },
+        'accuracy': accuracy,
         'recommendations': recommendations,
     })
 
@@ -369,11 +499,12 @@ def get_task_recommendations_mock(task_type, max_response_time, min_throughput, 
         mq = random.choice(mq_names)
         mw = random.choice(mw_names)
         os_name = random.choice(os_names)
-        
+
         # 模拟性能指标：确保符合约束
         perf_throughput = min_throughput + random.randint(100, 500)
         perf_latency = max_response_time - random.randint(10, 100)
-        
+        score = round(random.uniform(0.85, 0.98), 2)
+
         recommendations.append({
             'id': f"plan-{i+1}",
             'name': f"方案 {i+1}: {task_type} 优化组合",
@@ -381,10 +512,11 @@ def get_task_recommendations_mock(task_type, max_response_time, min_throughput, 
             'message_queue': mq,
             'middleware': mw,
             'operating_system': os_name,
+            'score': score,
             'estimated_performance': {
                 'throughput': perf_throughput,
                 'response_time_ms': perf_latency,
-                'score': round(random.uniform(0.85, 0.98), 2)
+                'score': score
             },
             'resource_requirements': {
                 'cpu_cores': resource_constraints.get('max_cpu_cores', 8),
@@ -392,7 +524,10 @@ def get_task_recommendations_mock(task_type, max_response_time, min_throughput, 
                 'storage_gb': 100
             },
         })
-    
+
+    # 按评分从高到低排序
+    recommendations.sort(key=lambda x: x['score'], reverse=True)
+
     return recommendations
 
 def get_task_recommendations_from_csv(task_type, max_response_time, min_throughput, resource_constraints):
@@ -473,10 +608,21 @@ def get_task_recommendations_from_csv(task_type, max_response_time, min_throughp
     for i in range(count):
         db_data = db_candidates[i]
         mq_data = mq_candidates[i]
+
+        # 计算综合评分（基于性能指标）
+        # 评分规则：TPS越高越好，延迟越低越好，资源占用越低越好
+        tps_score = min(db_data['tps'] / min_throughput, 2.0) * 0.3  # TPS权重30%
+        latency_score = max(0, 2.0 - db_data['latency_ms'] / max_response_time) * 0.3  # 延迟权重30%
+        mq_throughput_score = min(mq_data['throughput'] / min_throughput, 2.0) * 0.2  # MQ吞吐量权重20%
+        resource_score = max(0, 2.0 - (db_data['cpu_usage'] + mq_data['cpu_usage']) / 200) * 0.2  # 资源占用权重20%
+
+        score = (tps_score + latency_score + mq_throughput_score + resource_score) * 0.5  # 归一化到0-1
+
         recommendations.append({
             'database': db_data['component'],
             'message_queue': mq_data['component'],
             'operating_system': '麒麟 Kylin V10',  # 从components.json获取或默认值
+            'score': round(score, 3),  # 添加评分字段
             'estimated_performance': {
                 'throughput': db_data['tps'],
                 'response_time': db_data['latency_ms'],
@@ -495,7 +641,10 @@ def get_task_recommendations_from_csv(task_type, max_response_time, min_throughp
                 'message_queue_memory_usage': mq_data['memory_usage']
             }
         })
-    
+
+    # 按评分从高到低排序
+    recommendations.sort(key=lambda x: x['score'], reverse=True)
+
     return recommendations
 
 

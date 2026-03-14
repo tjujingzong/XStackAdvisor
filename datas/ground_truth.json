@@ -1,0 +1,40 @@
+{
+  "version": "1.0",
+  "description": "人工构建的真值表，用于评估系统推荐准确性。覆盖 DB×MQ 兼容性、DB×OS 兼容性、依赖关键词识别三个维度。",
+
+  "db_mq_compatibility": {
+    "达梦数据库":        { "阿里 RabbitMQ": true, "宝兰德 BES MQ": true, "普元 Primeton MQ": true, "金蝶 ADMQ": true },
+    "人大金仓 KingbaseES": { "阿里 RabbitMQ": true, "宝兰德 BES MQ": true, "普元 Primeton MQ": true, "金蝶 ADMQ": true },
+    "南大通用 GBase":    { "阿里 RabbitMQ": true, "宝兰德 BES MQ": true, "普元 Primeton MQ": true, "金蝶 ADMQ": true },
+    "海量数据库":        { "阿里 RabbitMQ": true, "宝兰德 BES MQ": true, "普元 Primeton MQ": true, "金蝶 ADMQ": true }
+  },
+
+  "db_os_compatibility": {
+    "达梦数据库":        { "统信 UOS": true, "麒麟 Kylin": true },
+    "人大金仓 KingbaseES": { "统信 UOS": true, "麒麟 Kylin": true },
+    "南大通用 GBase":    { "统信 UOS": true, "麒麟 Kylin": true },
+    "海量数据库":        { "统信 UOS": true, "麒麟 Kylin": true }
+  },
+
+  "dependency_keywords": {
+    "database":      ["JDBC", "连接池", "JDK", "Linux"],
+    "message_queue": ["AMQP", "JMS", "Erlang"],
+    "middleware":    ["JMS", "AMQP", "JDK"],
+    "operating_system": ["Linux", "glibc", "systemd"]
+  },
+
+  "task_recommendations": {
+    "OLTP": {
+      "compatible_databases":  ["达梦数据库", "人大金仓 KingbaseES", "南大通用 GBase", "海量数据库"],
+      "compatible_mq":         ["阿里 RabbitMQ", "宝兰德 BES MQ", "普元 Primeton MQ", "金蝶 ADMQ"],
+      "compatible_os":         ["统信 UOS", "麒麟 Kylin"],
+      "compatible_middlewares": ["东方通 TongLink/Q", "阿里 Tengine"]
+    },
+    "ALTP": {
+      "compatible_databases":  ["达梦数据库", "人大金仓 KingbaseES", "南大通用 GBase", "海量数据库"],
+      "compatible_mq":         ["阿里 RabbitMQ", "宝兰德 BES MQ", "普元 Primeton MQ", "金蝶 ADMQ"],
+      "compatible_os":         ["统信 UOS", "麒麟 Kylin"],
+      "compatible_middlewares": ["东方通 TongLink/Q", "阿里 Tengine"]
+    }
+  }
+}
