@@ -97,34 +97,80 @@ def calculate_component_accuracy(
     return round(sum(s * w for s, w in zip(scores, weights)) / total_w, 3)
 
 
-def calculate_task_accuracy(task_type: str, recommendations: list) -> Optional[float]:
+def normalize_task_type(task_type: Optional[str]) -> str:
+    """规范化任务类型，仅支持 OLTP/OLAP，其他值回退到 OLTP。"""
+    value = str(task_type or '').strip().upper()
+    if value in ('OLTP', 'OLAP'):
+        return value
+    return 'OLTP'
+
+
+def calculate_task_accuracy(
+    task_type: str,
+    recommendations: list,
+    max_response_time: Optional[float] = None,
+    min_throughput: Optional[float] = None,
+    resource_constraints: Optional[dict] = None,
+) -> Optional[float]:
     """
     基于任务适配评估的准确性：
-    推荐组合中 DB / MQ / OS / 中间件均在真值表兼容列表内的比例。
+    - 组件匹配度（DB/MQ/OS/中间件）占 70%
+    - 性能约束满足度（吞吐、响应时间）占 20%
+    - 资源约束满足度（CPU、内存）占 10%
     """
     gt = _load_ground_truth()
     if not gt or not recommendations:
         return None
 
-    task_gt = gt.get('task_recommendations', {}).get(task_type)
+    task_recs = gt.get('task_recommendations', {})
+    task_gt = task_recs.get(task_type)
     if not task_gt:
         return None
 
-    compat_db  = task_gt.get('compatible_databases', [])
-    compat_mq  = task_gt.get('compatible_mq', [])
-    compat_os  = task_gt.get('compatible_os', [])
-    compat_mw  = task_gt.get('compatible_middlewares', [])
+    resource_constraints = resource_constraints or {}
 
-    correct = 0
+    compat_db = task_gt.get('compatible_databases', [])
+    compat_mq = task_gt.get('compatible_mq', [])
+    compat_os = task_gt.get('compatible_os', [])
+    compat_mw = task_gt.get('compatible_middlewares', [])
+
+    def _in_compat(value: Optional[str], candidates: list) -> bool:
+        if not candidates:
+            return True
+        if not value:
+            return False
+        return any((value == c) or (value in c) or (c in value) for c in candidates)
+
+    rec_scores = []
     for rec in recommendations:
-        db_ok = not compat_db  or rec.get('database')          in compat_db
-        mq_ok = not compat_mq  or rec.get('message_queue')     in compat_mq
-        os_ok = not compat_os  or rec.get('operating_system')  in compat_os
-        mw_ok = not compat_mw  or rec.get('middleware')        in compat_mw
-        if db_ok and mq_ok and os_ok and mw_ok:
-            correct += 1
+        db_ok = _in_compat(rec.get('database'), compat_db)
+        mq_ok = _in_compat(rec.get('message_queue'), compat_mq)
+        os_ok = _in_compat(rec.get('operating_system'), compat_os)
+        mw_ok = _in_compat(rec.get('middleware'), compat_mw)
+        component_score = (db_ok + mq_ok + os_ok + mw_ok) / 4
 
-    return round(correct / len(recommendations), 3)
+        perf = rec.get('estimated_performance', {}) or {}
+        throughput = perf.get('throughput')
+        response_time = perf.get('response_time_ms', perf.get('response_time'))
+
+        throughput_ok = (min_throughput is None) or (throughput is not None and throughput >= min_throughput)
+        response_ok = (max_response_time is None) or (response_time is not None and response_time <= max_response_time)
+        perf_score = (throughput_ok + response_ok) / 2
+
+        req = rec.get('resource_requirements', {}) or {}
+        max_cpu = resource_constraints.get('max_cpu_cores')
+        max_mem = resource_constraints.get('max_memory_gb')
+        cpu_val = req.get('cpu_cores')
+        mem_val = req.get('memory_gb')
+
+        cpu_ok = (max_cpu is None) or (cpu_val is not None and cpu_val <= max_cpu)
+        mem_ok = (max_mem is None) or (mem_val is not None and mem_val <= max_mem)
+        resource_score = (cpu_ok + mem_ok) / 2
+
+        total = 0.7 * component_score + 0.2 * perf_score + 0.1 * resource_score
+        rec_scores.append(total)
+
+    return round(sum(rec_scores) / len(rec_scores), 3)
 
 @app.route('/api/adaptation/component-based', methods=['POST'])
 def component_based_adaptation():
@@ -231,7 +277,7 @@ def task_based_adaptation():
     if not data:
         return jsonify({'error': '请求数据不能为空'}), 400
 
-    task_type = data.get('task_type', 'OLTP')
+    task_type = normalize_task_type(data.get('task_type', 'OLTP'))
     max_response_time = data.get('max_response_time', 1000)  # ms
     min_throughput = data.get('min_throughput', 1000)  # TPS
     resource_constraints = data.get('resource_constraints', {})
@@ -243,7 +289,13 @@ def task_based_adaptation():
         resource_constraints=resource_constraints,
     )
 
-    accuracy = calculate_task_accuracy(task_type, recommendations)
+    accuracy = calculate_task_accuracy(
+        task_type=task_type,
+        recommendations=recommendations,
+        max_response_time=max_response_time,
+        min_throughput=min_throughput,
+        resource_constraints=resource_constraints,
+    )
 
     return jsonify({
         'task_type': task_type,
@@ -477,8 +529,6 @@ def get_dependencies(db, mq, os, middleware=None):
 
     return dependencies
 
-import uuid
-import time
 import random
 
 def get_task_recommendations_mock(task_type, max_response_time, min_throughput, resource_constraints):
@@ -525,15 +575,19 @@ def get_task_recommendations_mock(task_type, max_response_time, min_throughput, 
             },
         })
 
-    # 按评分从高到低排序
-    recommendations.sort(key=lambda x: x['score'], reverse=True)
+    # 按评分从高到低排序；同分时按原方案ID稳定排序
+    recommendations.sort(key=lambda x: (-x['score'], x['id']))
+
+    # 排序后重排方案名称，避免“方案 1”出现在后面
+    for idx, rec in enumerate(recommendations, start=1):
+        rec['name'] = f"方案 {idx}: {task_type} 优化组合"
 
     return recommendations
 
 def get_task_recommendations_from_csv(task_type, max_response_time, min_throughput, resource_constraints):
     """
     根据任务约束从CSV数据中获取推荐
-    - 支持任务类型：OLTP、ALTP（当前按相同规则过滤，只是类型标识不同）
+    - 支持任务类型：OLTP、OLAP
     - 推荐方案尽量给出三个组合
     """
     recommendations = []
@@ -644,6 +698,11 @@ def get_task_recommendations_from_csv(task_type, max_response_time, min_throughp
 
     # 按评分从高到低排序
     recommendations.sort(key=lambda x: x['score'], reverse=True)
+
+    # 排序后再命名，确保第一条一定是 plan 1
+    for idx, rec in enumerate(recommendations, start=1):
+        rec['id'] = f"plan-{idx}"
+        rec['name'] = f"方案 {idx}: {task_type} 优化组合"
 
     return recommendations
 

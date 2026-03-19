@@ -30,7 +30,7 @@
       "compatible_os":         ["统信 UOS", "麒麟 Kylin"],
       "compatible_middlewares": ["东方通 TongLink/Q", "阿里 Tengine"]
     },
-    "ALTP": {
+    "OLAP": {
       "compatible_databases":  ["达梦数据库", "人大金仓 KingbaseES", "南大通用 GBase", "海量数据库"],
       "compatible_mq":         ["阿里 RabbitMQ", "宝兰德 BES MQ", "普元 Primeton MQ", "金蝶 ADMQ"],
       "compatible_os":         ["统信 UOS", "麒麟 Kylin"],

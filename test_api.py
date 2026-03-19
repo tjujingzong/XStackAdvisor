@@ -24,8 +24,8 @@ def test_component_based_adaptation():
 def test_task_based_adaptation():
     """测试基于任务的适配评估"""
     data = {
-        # 任务类型支持：OLTP / ALTP，这里使用 ALTP 进行测试
-        "task_type": "ALTP",
+        # 任务类型支持：OLTP / OLAP，这里使用 OLAP 进行测试
+        "task_type": "OLAP",
         "max_response_time": 1000,
         "min_throughput": 1000,
         "resource_constraints": {
